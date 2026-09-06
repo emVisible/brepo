@@ -1,0 +1,35 @@
+{
+  "name": "@briefrepo/tokens",
+  "version": "0.1.0",
+  "description": "BriefRepo 设计 Tokens 单一真相源（中性灰 + 单紫强调，沉浸式 3D PowerBI）",
+  "license": "MIT",
+  "author": "BriefRepo Team",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/emVisible/brepo"
+  },
+  "keywords": ["tokens", "design-system", "briefrepo"],
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "clean": "rm -rf dist tsconfig.tsbuildinfo",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0",
+    "@types/node": "^20.0.0"
+  },
+  "files": ["dist"]
+}

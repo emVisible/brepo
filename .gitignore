@@ -7,6 +7,8 @@ dist
 build
 .next
 out
+.turbo
+*.tsbuildinfo
 
 # Logs
 *.log
@@ -42,6 +44,13 @@ coverage
 # Testing
 .junit
 coverage
+
+# BriefRepo generated reports
+brief-report*.html
+/tmp
+
+.brepo-doctor-*.tmp
+.brepo/
 
 # Misc
 .cache

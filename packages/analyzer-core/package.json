@@ -1,0 +1,49 @@
+{
+  "name": "@briefrepo/analyzer-core",
+  "version": "0.1.0",
+  "description": "BriefRepo 核心分析引擎（纯本地，零上传）",
+  "license": "MIT",
+  "author": "BriefRepo Team",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/emVisible/brepo"
+  },
+  "keywords": [
+    "analysis",
+    "briefrepo",
+    "ast",
+    "onboarding"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "clean": "rm -rf dist tsconfig.tsbuildinfo",
+    "lint": "eslint src --ext .ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@briefrepo/tokens": "workspace:*",
+    "@briefrepo/types": "workspace:*",
+    "gray-matter": "^4.0.3",
+    "simple-git": "^3.27.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.5.0"
+  },
+  "files": [
+    "dist"
+  ]
+}

@@ -1,0 +1,67 @@
+/* BriefRepo Web — 新设计语言（中性灰 + 单紫） */
+:root {
+  --bg: #0a0a0b;
+  --card: #141416;
+  --card-hover: #1c1c1f;
+  --text: #edeef0;
+  --muted: #9a9aa0;
+  --subtle: #6b6b74;
+  --border: #232326;
+  --border-hover: #2f2f34;
+  --input: #141416;
+  --primary: #6e56cf;
+  --primary-50: #ede9fe;
+  --accent: #6e56cf;
+  --success: #30a46c;
+  --warning: #f76808;
+  --error: #e5484d;
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
+  --radius-full: 9999px;
+  --font-sans: var(--font-geist-sans), 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), 'JetBrains Mono', ui-monospace, monospace;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+canvas { display: block; }
+
+/* 高密度 HUD：等宽数字，选中克制 */
+code, pre, .mono {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
+::selection { background: rgba(110, 86, 207, 0.4); }
+
+/* 视图切换淡入（挂载即播一次） */
+@keyframes brepo-view-in {
+  from { opacity: 0; transform: scale(0.995); }
+  to { opacity: 1; transform: scale(1); }
+}
+.brepo-view-in { animation: brepo-view-in 0.28s ease-out; }
+
+/* 首页背景三件套：呼吸潮汐（对角错峰）/ 数据流线 / 聚焦入场 */
+@keyframes brepo-tide {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
+@keyframes brepo-dash {
+  to { stroke-dashoffset: -240; }
+}
+@keyframes brepo-focus {
+  from { filter: blur(14px); opacity: 0; transform: scale(1.015); }
+  to { filter: blur(0); opacity: 1; transform: scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .brepo-anim, .brepo-anim *, .brepo-view-in { animation: none !important; }
+}

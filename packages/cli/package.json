@@ -1,0 +1,47 @@
+{
+  "name": "@briefrepo/cli",
+  "version": "0.1.0",
+  "description": "BriefRepo CLI — 新员工的项目导航仪，60 秒生成入职导航报告",
+  "type": "module",
+  "license": "MIT",
+  "author": "BriefRepo Team",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/emVisible/brepo"
+  },
+  "bugs": {
+    "url": "https://github.com/emVisible/brepo/issues"
+  },
+  "homepage": "https://github.com/emVisible/brepo#readme",
+  "keywords": ["cli", "onboarding", "code-analysis", "briefrepo", "brepo", "monorepo"],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "bin": {
+    "brepo": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && chmod +x dist/index.js",
+    "dev": "tsc -p tsconfig.json --watch",
+    "clean": "rm -rf dist tsconfig.tsbuildinfo",
+    "lint": "eslint src --ext .ts",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm build"
+  },
+  "dependencies": {
+    "@briefrepo/analyzer-core": "workspace:*",
+    "@briefrepo/types": "workspace:*",
+    "@briefrepo/web-reporter": "workspace:*",
+    "commander": "^12.1.0",
+    "chalk": "^5.3.0",
+    "ora": "^8.0.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0",
+    "@types/node": "^20.0.0"
+  },
+  "files": ["dist"]
+}

@@ -1,0 +1,53 @@
+name: Brepo Report
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  brepo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 50
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Run brepo (Basic)
+        run: |
+          node packages/cli/dist/index.js analyze . --json brepo-report.json --html brepo-report.html 2>&1 | tee brepo.log
+          echo "kind=$(jq -r .basicInference.kind brepo-report.json)" >> $GITHUB_ENV
+          echo "confidence=$(jq -r .basicInference.confidence brepo-report.json)" >> $GITHUB_ENV
+      - name: Upload report
+        uses: actions/upload-artifact@v4
+        with:
+          name: brepo-report
+          path: |
+            brepo-report.html
+            brepo-report.json
+            brepo.log
+      - name: Comment PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = JSON.parse(fs.readFileSync('brepo-report.json','utf-8'));
+            const kind = report.basicInference.kind;
+            const conf = report.basicInference.confidence;
+            const reasons = report.basicInference.reasons.join(' · ');
+            const body = `### 📦 Brepo 导航报告\n\n**类型**: \`${kind}\` · **置信度** ${conf}% · **理由** ${reasons}\n\n- 文件 ${report.level0.fileCount} · 行数 ${report.level0.totalLines.toLocaleString()} · 主语言 ${report.level0.primaryLanguage}\n- 依赖 ${report.level1.dependencyGraph.length} 边 · 复杂度 ${report.level1.complexity.functions} 函数\n- 报告已上传为 Artifact (\`brepo-report.html\`)，本地预览 \`brepo serve --open\`\n\n> 基于静态规则，仅供参考。Pro/Max 需 \`DEEPSEEK_API_KEY\`。`;
+            github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number, body });

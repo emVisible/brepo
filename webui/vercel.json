@@ -1,0 +1,14 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "buildCommand": "pnpm --filter @briefrepo/webui build",
+  "outputDirectory": "webui/.next",
+  "functions": {
+    "webui/app/api/analyze/stream/route.ts": {
+      "maxDuration": 60
+    },
+    "webui/app/api/analyze/route.ts": {
+      "maxDuration": 60
+    }
+  }
+}

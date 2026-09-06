@@ -1,55 +1,53 @@
-# BriefRepo (brepo)
+# BriefRepo
 
-> 入职第一天，不再手足无措
+> Paste a repo, preview its map.
 
-## 一句话介绍
+[中文文档](./README.zh-CN.md)
 
-新员工入职第一天的项目导航仪 —— 60 秒生成项目导航报告，快速理解新项目。
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Node >=18](https://img.shields.io/badge/node-%3E%3D18-brightgreen)](package.json)
 
-## 核心原则
+BriefRepo analyzes a GitHub URL or local path and renders an interactive navigation report: a treemap for finding files, and a 3D city for dependency arcs, cycles, dead files, and entry points. Analysis is local-first static analysis — no code leaves your machine.
 
-- 🔒 **本地优先**：代码永远不出用户电脑，100% 隐私安全
-- 📖 **开源透明**：核心分析引擎 MIT License
-- ⚡ **快速分析**：60 秒出结果
-- 🎯 **模块化管理**：LLM Skill 系统可配置
-
-## 技术栈
-
-- **CLI**: TypeScript + Node.js
-- **Monorepo**: pnpm workspace + turborepo
-- **分析引擎**: Tree-sitter (WASM)
-- **报告**: React + Tailwind CSS + D3.js + GSAP
-
-## 快速开始
+## Quickstart
 
 ```bash
-# 安装（待发布）
-npm install -g @briefrepo/cli
+pnpm install && pnpm dev        # → http://localhost:3000/
 
-# 分析项目
+# CLI (after publish: npm i -g @briefrepo/cli)
 brepo analyze ./my-project
-
-# 查看预置报告
-brepo demo
+brepo analyze ./my-web-app --include-ext css,scss,png
+brepo analyze . --json out.json --html out.html --markdown out.md
+brepo diff ./a ./b --json diff.json
+brepo doctor --verbose
 ```
 
-## 项目结构
+## Structure
 
 ```
-briefrepo/
-├── skills/             # LLM Skill 配置（Markdown）
-├── packages/           # 核心包
-│   ├── cli/           # CLI 工具
-│   ├── analyzer-core/ # 分析引擎
-│   └── web-reporter/  # Web 报告
-├── docs/              # 文档
-└── PROJECT-PLAN.md    # 项目计划
+brepo/
+├── webui/                  # Next.js 15 web app (treemap + city views, bilingual)
+├── packages/
+│   ├── types/              # Shared types
+│   ├── tokens/             # Single-source design tokens
+│   ├── analyzer-core/      # Engine: parsers + analysis + events
+│   ├── web-reporter/       # renderHtml/renderMarkdown (CLI use)
+│   └── cli/                # brepo (analyze/doctor/diff/watch/clean)
 ```
 
-## 当前状态
+Stack: `TypeScript strict` · `pnpm workspace + turbo` · `Next.js 15 + React 18` · `Three.js 0.160` (vanilla, no R3F) · `framer-motion` · `simple-git` · `commander`
 
-**Phase 0: 规划完成** - 准备开始 Phase 1 开发
+## Develop
 
-## 许可证
+```bash
+pnpm dev                                  # → http://localhost:3000/
+pnpm vitest run                           # tests
+```
 
-MIT
+## Privacy
+
+100% local analysis. No network calls, no keys, no uploads. History lives only in your browser.
+
+## License
+
+MIT © BriefRepo Contributors — see [LICENSE](LICENSE)
