@@ -11,6 +11,8 @@ export interface FileItem {
   area: number;
   /** 行数已知；未知行数权重为 1 并以斜纹标出，不参与面积竞争 */
   known: boolean;
+  /** 命中过滤（已过滤文件淡化占位用）；未命中为 undefined */
+  filtered?: string;
 }
 
 export type Metric = 'lines' | 'count';

@@ -2,10 +2,12 @@
 
 // 首页：双语 + 双主题 + 动态背景（幽灵 treemap 潮汐 / 数据流线 / 聚焦入场）
 // 文案唯一来源 lib/i18n，本文件不硬编码任何展示文案
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion, useMotionValue, useReducedMotion, useSpring, useTransform } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { streamAnalyze } from '@/lib/api-client';
+import { checkRepoExists } from '@/lib/repo-check';
+import { parseRepoInput } from '@briefrepo/types';
 import { useWebStore } from '@/lib/store';
 import { dict, type Lang } from '@/lib/i18n';
 import { squarify } from '@/lib/treemap';
@@ -95,13 +97,19 @@ export function HomePage({ lang }: { lang: Lang }) {
   const t = dict[lang];
   const [path, setPath] = useState('');
   const [pct, setPct] = useState(0);
-  const [log, setLog] = useState<string[]>([]);
+  // 进度行按任务键合并且原地更新：同 phase:step 只刷新最后一行，不刷屏
+  const [log, setLog] = useState<{ key: string; text: string }[]>([]);
   const [running, setRunning] = useState(false);
   const [showOpts, setShowOpts] = useState(false);
   const [exts, setExts] = useState<string[]>([]);
   const [hit, setHit] = useState<HistoryEntry | null>(null);
   const [histVer, setHistVer] = useState(0);
   const [mounted, setMounted] = useState(false);
+  // 单次运行的取消控制器：取消按钮 abort → 服务端停止推送 + 清理，最终由真杀（worker）兜底
+  const abortRef = useRef<AbortController | null>(null);
+  // 日志框自动滚动：默认粘底；用户手动上翻后不再强拉，避免阅读时跳动
+  const logRef = useRef<HTMLPreElement>(null);
+  const stickRef = useRef(true);
   const reduceMotion = useReducedMotion();
   // localStorage 只在客户端可读：首渲与 SSR 一致（空），挂载后再读真实历史，避免 hydration mismatch
   const history = useMemo(() => (mounted ? listHistory() : []), [histVer, mounted]);
@@ -122,6 +130,21 @@ export function HomePage({ lang }: { lang: Lang }) {
     setMounted(true);
   }, []);
 
+  useEffect(() => {
+    const el = logRef.current;
+    if (el && stickRef.current) el.scrollTop = el.scrollHeight;
+  }, [log]);
+
+  /** 同任务键则覆盖最后一行（如“依赖解析中 · 12/627”→“· 300/627”），新任务才另起一行 */
+  function pushLog(key: string, text: string) {
+    setLog((prev) => {
+      const last = prev[prev.length - 1];
+      const next =
+        last && last.key === key ? [...prev.slice(0, -1), { key, text }] : [...prev, { key, text }];
+      return next.length > 100 ? next.slice(-100) : next;
+    });
+  }
+
   const mx = useMotionValue(0);
   const my = useMotionValue(0);
   const bgX = useSpring(useTransform(mx, [-0.5, 0.5], [18, -18]), { stiffness: 50, damping: 20 });
@@ -136,11 +159,24 @@ export function HomePage({ lang }: { lang: Lang }) {
     router.push(`/r/${entry.id}`);
   }
 
+  function cancel() {
+    abortRef.current?.abort();
+  }
+
   async function run(force = false) {
     if (!path.trim() || running) return;
-    // 查重：同路径+同选项命中历史则提示，不直接重跑
+    // 先解析归一：完整链接 / github.com 前缀 / SSH / owner/repo 速记 → 统一规范链接
+    const repo = parseRepoInput(path);
+    if (!repo) {
+      setHit(null);
+      setPct(0);
+      setLog([{ key: `invalid:${Date.now()}`, text: `✗ ${t.invalidRepo}` }]);
+      return;
+    }
+    const canonical = repo.url;
+    // 查重：同仓库+同选项命中历史则提示，不直接重跑
     if (!force) {
-      const found = findHistory(path, exts);
+      const found = findHistory(canonical, exts);
       if (found) {
         setHit(found);
         return;
@@ -150,20 +186,36 @@ export function HomePage({ lang }: { lang: Lang }) {
     setRunning(true);
     setPct(0);
     setLog([]);
+    stickRef.current = true;
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
     try {
+      // 预检：仓库不存在/私有直接拦下，省一次下载等待
+      pushLog('check:repo', t.checkingRepo);
+      const exists = await checkRepoExists(repo, ctrl.signal);
+      if (!exists.ok) {
+        if (exists.reason === 'not-found') {
+          pushLog('check:repo', `✗ ${t.repoNotFound(repo.owner, repo.repo)}`);
+        } else {
+          pushLog('check:repo', `✗ ${t.repoCheckFailed}`);
+        }
+        return;
+      }
       const result = await streamAnalyze(
         {
-          path: path.trim(),
+          path: canonical,
           includeExts: exts.length ? exts : undefined,
         },
         (e: AnalyzerEvent) => {
-          setPct(e.pct);
-          setLog((prev) => [...prev.slice(-100), `[${String(e.pct).padStart(3, ' ')}%] ${e.phase} · ${e.msg}`]);
+          // 进度只增不减：后端事件可能乱序到达，bar 绝不倒退
+          setPct((p) => Math.max(p, e.pct));
+          pushLog(`${e.phase}:${e.step || e.phase}`, `[${String(e.pct).padStart(3, ' ')}%] ${e.phase} · ${e.msg}`);
         },
+        { signal: ctrl.signal },
       );
       saveHistory({
         id: result.id,
-        path: normalizePath(path),
+        path: normalizePath(canonical),
         skill: 'basic',
         extsKey: extsKeyOf(exts),
         createdAt: Date.now(),
@@ -177,8 +229,15 @@ export function HomePage({ lang }: { lang: Lang }) {
       setData(result.result);
       router.push(`/r/${result.id}`);
     } catch (e) {
-      setLog((prev) => [...prev, `✗ ${e instanceof Error ? e.message : String(e)}`]);
+      if (e instanceof DOMException && e.name === 'AbortError') {
+        pushLog(`abort:${Date.now()}`, `■ ${t.cancelled}`);
+      } else if (e instanceof Error && e.name === 'StallError') {
+        pushLog(`stall:${Date.now()}`, `✗ ${t.connLost}`);
+      } else {
+        pushLog(`error:${Date.now()}`, `✗ ${e instanceof Error ? e.message : String(e)}`);
+      }
     } finally {
+      abortRef.current = null;
       setRunning(false);
     }
   }
@@ -235,7 +294,7 @@ export function HomePage({ lang }: { lang: Lang }) {
             value={path}
             onChange={(e) => setPath(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') run(); }}
-            placeholder="https://github.com/vitejs/vite"
+            placeholder={t.pathPlaceholder}
             style={{ ...inputStyle, marginTop: 6 }}
           />
 
@@ -309,15 +368,25 @@ export function HomePage({ lang }: { lang: Lang }) {
             )}
           </AnimatePresence>
 
-          <button onClick={() => run()} disabled={running} style={{ width: '100%', height: 40, marginTop: 14, background: 'var(--primary)', border: '1px solid var(--primary)', color: '#fff', borderRadius: 9999, fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: running ? 0.6 : 1 }}>
-            {running ? t.running(pct) : t.run}
+          <button
+            onClick={() => (running ? cancel() : run())}
+            disabled={!running && !path.trim()}
+            style={{ width: '100%', height: 40, marginTop: 14, background: running ? 'transparent' : 'var(--primary)', border: '1px solid var(--primary)', color: running ? 'var(--primary)' : '#fff', borderRadius: 9999, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+          >
+            {running ? `${t.cancel} · ${pct}%` : t.run}
           </button>
           {(pct > 0 || log.length > 0) && (
             <div style={{ marginTop: 12, borderTop: '1px solid rgba(255,255,255,.09)', paddingTop: 10 }} aria-live="polite">
               <div style={{ height: 3, background: 'var(--border)', borderRadius: 999, overflow: 'hidden' }}>
                 <div style={{ height: '100%', width: `${pct}%`, background: 'var(--primary)', transition: 'width .3s' }} />
               </div>
-              <pre className="mono" style={{ marginTop: 8, maxHeight: 140, overflow: 'auto', fontSize: 11, color: 'var(--muted)', whiteSpace: 'pre-wrap' }}>{log.join('\n')}</pre>
+              <pre
+                ref={logRef}
+                onScroll={(ev) => {
+                  const el = ev.currentTarget;
+                  stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+                }}
+                className="mono" style={{ marginTop: 8, maxHeight: 140, overflow: 'auto', fontSize: 11, color: 'var(--muted)', whiteSpace: 'pre-wrap' }}>{log.map((l) => l.text).join('\n')}</pre>
             </div>
           )}
         </div>

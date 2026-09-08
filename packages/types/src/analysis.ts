@@ -18,6 +18,11 @@ export interface Level0Result {
   description: string;
   fileCount: number;
   totalLines: number;
+  /** 含已过滤的总数（左树真实总数） */
+  fileCountAll?: number;
+  totalLinesAll?: number;
+  filteredCount?: number;
+  filteredBy?: Record<string, number>;
   languages: Record<string, number>;
   primaryLanguage?: string;
   techStack: string[];

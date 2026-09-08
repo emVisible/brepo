@@ -1,5 +1,6 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { join, extname } from 'node:path';
+import { readHead } from './fsio.js';
 import { COMPLEXITY } from '../constants.js';
 
 const CODE_EXTS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.py', '.go']);
@@ -15,8 +16,14 @@ const FUNC_RE = /\b(?:function\s+\w*|(?:const|let|var)\s+\w+\s*=\s*(?:async\s*)?
 const CLASS_RE = /\bclass\s+\w+/g;
 const BRANCH_RE = /\b(?:if|for|while|switch|case|catch|elif|when)\b|&&|\|\||\?/g;
 
-export async function analyzeComplexity(root: string, allFiles: string[], fileContents?: Map<string, string>): Promise<FileStats> {
+export async function analyzeComplexity(
+  root: string,
+  allFiles: string[],
+  fileContents?: Map<string, string>,
+  onProgress?: (done: number, total: number) => void,
+): Promise<FileStats> {
   const candidates = allFiles.filter((p) => CODE_EXTS.has(extname(p).toLowerCase())).slice(0, COMPLEXITY.fileLimit);
+  onProgress?.(0, candidates.length);
 
   const batchSize = COMPLEXITY.batchSize;
   let functions = 0;
@@ -30,8 +37,12 @@ export async function analyzeComplexity(root: string, allFiles: string[], fileCo
       batch.map(async (rel): Promise<{ f: number; c: number; b: number }> => {
         let content = fileContents?.get(rel);
         if (content === undefined) {
+          // 先判后读：超限只取头部样本（与旧行为一致），不再全量读入
           try {
-            content = await readFile(join(root, rel), 'utf-8');
+            const st = await stat(join(root, rel));
+            content = st.size > COMPLEXITY.maxContentLen
+              ? (await readHead(join(root, rel), COMPLEXITY.maxContentLen)) ?? ''
+              : await readFile(join(root, rel), 'utf-8');
           } catch {
             return { f: 0, c: 0, b: 0 };
           }
@@ -55,6 +66,7 @@ export async function analyzeComplexity(root: string, allFiles: string[], fileCo
       classes += r.c;
       branches += r.b;
     }
+    onProgress?.(Math.min(i + batchSize, candidates.length), candidates.length);
   }
 
   perFile.sort((a, b) => b.branches + b.functions * 2 - (a.branches + a.functions * 2));

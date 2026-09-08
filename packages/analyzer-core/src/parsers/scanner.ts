@@ -1,6 +1,9 @@
 import { readdir, lstat, readFile } from 'node:fs/promises';
 import { join, extname, relative } from 'node:path';
+import type { FilterId } from '@briefrepo/types';
+import { DEFAULT_EXCLUDE, matchFilter } from '@briefrepo/types';
 import { SCAN } from '../constants.js';
+import { readHead } from './fsio.js';
 
 const IGNORED_DIRS = new Set([
   'node_modules',
@@ -66,6 +69,7 @@ const CODE_EXTENSIONS = new Set([
 const DOC_EXTENSIONS = new Set(['.md', '.mdx', '.rst', '.txt', '.adoc']);
 
 export interface ScanResult {
+  /** 未被过滤的有效文件数（用于 treemap/复杂度/依赖图等分析视图） */
   fileCount: number;
   totalLines: number;
   docFileCount: number;
@@ -73,8 +77,16 @@ export interface ScanResult {
   primaryLanguage?: string;
   fileTree: FileNode[];
   topLevelFiles: string[];
+  /** 未被过滤的有效文件相对路径 */
   allFiles: string[];
   fileContents: Map<string, string>;
+  /** 含被过滤文件的总数（含 fileTree/allFilteredFiles） */
+  fileCountAll: number;
+  totalLinesAll: number;
+  /** 被过滤文件（含原因，可用于左树打标与总数拆解） */
+  filteredFiles: Array<{ path: string; reason: FilterId }>;
+  allFilteredFiles: string[];
+  filteredBy: Record<FilterId, number>;
 }
 
 export interface FileNode {
@@ -84,6 +96,7 @@ export interface FileNode {
   children?: FileNode[];
   size?: number;
   lineCount?: number;
+  filtered?: FilterId;
 }
 
 function extToLanguage(ext: string): string | undefined {
@@ -152,12 +165,11 @@ export function normalizeIncludeExts(input: unknown): string[] {
   return out;
 }
 
-function shouldIgnore(name: string, include?: Set<string>): boolean {
+function shouldIgnore(name: string, _include?: Set<string>): boolean {
   if (IGNORED_DIRS.has(name)) return true;
   if (IGNORED_FILES.has(name)) return true;
   if (IGNORED_EXACT.has(name)) return true;
-  const ext = extname(name).toLowerCase();
-  if (IGNORED_EXTS.has(ext) && !include?.has(ext)) return true;
+  // IGNORED_EXTS 的判定下沉到文件级：被过滤的资源（test/media/generated）需保留为 fileTree 标记，不在此直接丢弃
   if (name.startsWith('.')) {
     if (name === '.github') return false;
     if (name === '.env.example') return false;
@@ -221,6 +233,9 @@ export async function scanProject(root: string, opts: ScanOptions = {}): Promise
     }
   }
 
+  const filteredBy: Record<FilterId, number> = { test: 0, generated: 0, text: 0, media: 0 };
+  for (const f of tree.filteredFiles) filteredBy[f.reason]++;
+
   return {
     fileCount: tree.fileCount,
     totalLines: tree.totalLines,
@@ -231,6 +246,11 @@ export async function scanProject(root: string, opts: ScanOptions = {}): Promise
     topLevelFiles,
     allFiles: tree.allFiles,
     fileContents,
+    fileCountAll: tree.fileCountAll,
+    totalLinesAll: tree.totalLinesAll,
+    filteredFiles: tree.filteredFiles,
+    allFilteredFiles: tree.allFilteredFiles,
+    filteredBy,
   };
 }
 
@@ -240,103 +260,153 @@ async function scanDir(
   languages: Record<string, number>,
   fileContents: Map<string, string>,
   include: Set<string> = new Set(),
-): Promise<{ nodes: FileNode[]; fileCount: number; totalLines: number; docFileCount: number; allFiles: string[] }> {
+): Promise<{
+  nodes: FileNode[];
+  fileCount: number;
+  totalLines: number;
+  docFileCount: number;
+  allFiles: string[];
+  fileCountAll: number;
+  totalLinesAll: number;
+  filteredFiles: Array<{ path: string; reason: FilterId }>;
+  allFilteredFiles: string[];
+}> {
   let entries: string[];
   try {
     entries = await readdir(dir);
   } catch {
-    return { nodes: [], fileCount: 0, totalLines: 0, docFileCount: 0, allFiles: [] };
+    return { nodes: [], fileCount: 0, totalLines: 0, docFileCount: 0, allFiles: [], fileCountAll: 0, totalLinesAll: 0, filteredFiles: [], allFilteredFiles: [] };
   }
 
   const filtered = entries.filter((n) => !shouldIgnore(n, include));
-  if (filtered.length === 0) return { nodes: [], fileCount: 0, totalLines: 0, docFileCount: 0, allFiles: [] };
+  if (filtered.length === 0) return { nodes: [], fileCount: 0, totalLines: 0, docFileCount: 0, allFiles: [], fileCountAll: 0, totalLinesAll: 0, filteredFiles: [], allFilteredFiles: [] };
 
+  // 注意：limiter 只包裹叶子内容读取，目录元数据（lstat/readdir）与递归不占槽。
+  // 曾经整个条目（含递归）都在槽内，导致在途目录数超过并发数时永久死锁（70+ 子目录必现）。
   const results = await Promise.all(
-    filtered.map((name) =>
-      limitFs(async () => {
-        const fullPath = join(dir, name);
-        const rel = relative(root, fullPath);
-        if (rel.split('/').length > SCAN.maxDepth) return null;
-        if (rel.length > SCAN.maxPathLen) return null;
+    filtered.map(async (name) => {
+      const fullPath = join(dir, name);
+      const rel = relative(root, fullPath);
+      if (rel.split('/').length > SCAN.maxDepth) return null;
+      if (rel.length > SCAN.maxPathLen) return null;
 
-        let s;
-        try {
-          s = await lstat(fullPath);
-        } catch {
-          return null;
-        }
-        if (s.isSymbolicLink()) return null;
+      let s;
+      try {
+        s = await lstat(fullPath);
+      } catch {
+        return null;
+      }
+      if (s.isSymbolicLink()) return null;
 
-        if (s.isDirectory()) {
-          const sub = await scanDir(fullPath, root, languages, fileContents, include);
+      if (s.isDirectory()) {
+        const sub = await scanDir(fullPath, root, languages, fileContents, include);
+        return {
+          node: { name, path: rel, type: 'directory' as const, children: sub.nodes } as FileNode,
+          fileCount: sub.fileCount,
+          totalLines: sub.totalLines,
+          docFileCount: sub.docFileCount,
+          allFiles: sub.allFiles,
+          size: 0,
+          lineCount: 0,
+          fileCountAll: sub.fileCountAll,
+          totalLinesAll: sub.totalLinesAll,
+          filteredFiles: sub.filteredFiles,
+          allFilteredFiles: sub.allFilteredFiles,
+        };
+      }
+
+      if (s.isFile()) {
+        const ext2 = extname(name).toLowerCase();
+        const rawFiltered = matchFilter(rel) as FilterId | null;
+        const nodeFiltered: FilterId | undefined = rawFiltered && !include.has(ext2) ? rawFiltered : undefined;
+        const isExcluded = Boolean(nodeFiltered && (DEFAULT_EXCLUDE as readonly string[]).includes(nodeFiltered));
+        const size = s.size;
+
+        // 被排除文件（默认过滤的 test/generated/media）：仍需 fileTree 左树展示与总数拆解，但不计入有效集、不读内容
+        // 需先于 IGNORED_EXTS/代码门限判断，否则 png 等资源会被直接丢弃而无法在左树打标
+        if (isExcluded) {
+          const lineCount = Math.max(1, Math.round(size / 1024));
           return {
-            node: { name, path: rel, type: 'directory' as const, children: sub.nodes } as FileNode,
-            fileCount: sub.fileCount,
-            totalLines: sub.totalLines,
-            docFileCount: sub.docFileCount,
-            allFiles: sub.allFiles,
-            size: 0,
-            lineCount: 0,
-          };
-        }
-
-        if (s.isFile()) {
-          if (IGNORED_EXACT.has(name)) return null;
-          const ext2 = extname(name).toLowerCase();
-          if (IGNORED_EXTS.has(ext2) && !include.has(ext2)) return null;
-          const extra = include.has(ext2);
-          // 代码 / 文档 / 用户白名单放行，其余忽略
-          if (!isCodeLike(name) && !CODE_EXTENSIONS.has(ext2) && !DOC_EXTENSIONS.has(ext2) && !extra) {
-            return null;
-          }
-
-          const ext = extname(name).toLowerCase();
-          const lang = extToLanguage(ext);
-          if (lang) languages[lang] = (languages[lang] ?? 0) + 1;
-
-          let docInc = 0;
-          if (DOC_EXTENSIONS.has(ext)) docInc = 1;
-
-          let lineCount = 0;
-          const size = s.size;
-          if (CODE_EXTENSIONS.has(ext) || DOC_EXTENSIONS.has(ext)) {
-            if (s.size > SCAN.largeFileSize) {
-              lineCount = Math.round(s.size / SCAN.linesPerByte);
-            } else {
-              try {
-                const content = await readFile(fullPath, 'utf-8');
-                lineCount = content.split('\n').length;
-                if (fileContents.size < SCAN.contentsLimit && s.size < SCAN.contentsMaxSize && (CODE_EXTENSIONS.has(ext) || ext === '.md')) {
-                  fileContents.set(rel, content);
-                }
-              } catch {
-                // binary
-              }
-            }
-          } else if (extra) {
-            // 白名单非常规文件：文本按行计，二进制按 KB 折算并标注（不进 fileContents，不污染依赖分析）
-            try {
-              const content = await readFile(fullPath, 'utf-8');
-              lineCount = content.includes('\0') ? Math.max(1, Math.round(s.size / 1024)) : content.split('\n').length;
-            } catch {
-              lineCount = Math.max(1, Math.round(s.size / 1024));
-            }
-          }
-
-          return {
-            node: { name, path: rel, type: 'file' as const, size, lineCount } as FileNode,
-            fileCount: 1,
-            totalLines: lineCount,
-            docFileCount: docInc,
-            allFiles: [rel],
+            node: { name, path: rel, type: 'file' as const, size, lineCount, filtered: nodeFiltered! } as FileNode,
+            fileCount: 0,
+            totalLines: 0,
+            docFileCount: 0,
+            allFiles: [],
             size,
             lineCount,
+            fileCountAll: 1,
+            totalLinesAll: lineCount,
+            filteredFiles: [{ path: rel, reason: nodeFiltered! }],
+            allFilteredFiles: [rel],
           };
         }
 
-        return null;
-      }),
-    ),
+        if (IGNORED_EXACT.has(name)) return null;
+        if (IGNORED_EXTS.has(ext2) && !include.has(ext2)) return null;
+        const extra = include.has(ext2);
+        // 代码 / 文档 / 用户白名单放行，其余忽略
+        if (!isCodeLike(name) && !CODE_EXTENSIONS.has(ext2) && !DOC_EXTENSIONS.has(ext2) && !extra) {
+          return null;
+        }
+
+        const ext = extname(name).toLowerCase();
+        const lang = extToLanguage(ext);
+        if (lang) languages[lang] = (languages[lang] ?? 0) + 1;
+
+        let docInc = 0;
+        if (DOC_EXTENSIONS.has(ext)) docInc = 1;
+        // 内容读取是唯一的重 IO：先按 stat 限流，超限直接估算，绝不把 GB 级文件读进内存
+        const lineCount = await limitFs(async () => {
+          if (CODE_EXTENSIONS.has(ext) || DOC_EXTENSIONS.has(ext)) {
+            if (size > SCAN.largeFileSize) {
+              return Math.round(size / SCAN.linesPerByte);
+            }
+            try {
+              const content = await readFile(fullPath, 'utf-8');
+              const n = content.split('\n').length;
+              if (fileContents.size < SCAN.contentsLimit && size < SCAN.contentsMaxSize && (CODE_EXTENSIONS.has(ext) || ext === '.md')) {
+                fileContents.set(rel, content);
+              }
+              return n;
+            } catch {
+              return 0; // binary
+            }
+          }
+          if (extra) {
+            if (size > SCAN.extraContentMax) {
+              return Math.max(1, Math.round(size / 1024));
+            }
+            try {
+              const head = await readHead(fullPath, SCAN.sniffBytes);
+              if (head === undefined) return Math.max(1, Math.round(size / 1024));
+              if (head.includes('\0')) return Math.max(1, Math.round(size / 1024));
+              if (size <= SCAN.sniffBytes) return head.split('\n').length;
+              const content = await readFile(fullPath, 'utf-8');
+              return content.split('\n').length;
+            } catch {
+              return Math.max(1, Math.round(size / 1024));
+            }
+          }
+          return 0;
+        });
+
+        return {
+          node: { name, path: rel, type: 'file' as const, size, lineCount, ...(nodeFiltered ? { filtered: nodeFiltered } : {}) } as FileNode,
+          fileCount: 1,
+          totalLines: lineCount,
+          docFileCount: docInc,
+          allFiles: [rel],
+          size,
+          lineCount,
+          fileCountAll: 1,
+          totalLinesAll: lineCount,
+          filteredFiles: [],
+          allFilteredFiles: [],
+        };
+      }
+
+      return null;
+    }),
   );
 
   const nodes: FileNode[] = [];
@@ -344,6 +414,10 @@ async function scanDir(
   let totalLines = 0;
   let docFileCount = 0;
   const allFiles: string[] = [];
+  let fileCountAll = 0;
+  let totalLinesAll = 0;
+  const filteredFiles: Array<{ path: string; reason: FilterId }> = [];
+  const allFilteredFiles: string[] = [];
 
   for (const r of results) {
     if (!r) continue;
@@ -352,6 +426,10 @@ async function scanDir(
     totalLines += r.totalLines;
     docFileCount += r.docFileCount;
     allFiles.push(...r.allFiles);
+    fileCountAll += r.fileCountAll;
+    totalLinesAll += r.totalLinesAll;
+    filteredFiles.push(...r.filteredFiles);
+    allFilteredFiles.push(...r.allFilteredFiles);
   }
 
   nodes.sort((a, b) => {
@@ -359,5 +437,5 @@ async function scanDir(
     return a.name.localeCompare(b.name);
   });
 
-  return { nodes, fileCount, totalLines, docFileCount, allFiles };
+  return { nodes, fileCount, totalLines, docFileCount, allFiles, fileCountAll, totalLinesAll, filteredFiles, allFilteredFiles };
 }

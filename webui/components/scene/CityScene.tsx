@@ -12,6 +12,8 @@ interface Props {
   selected: string | null;
   onSelect: (p: string | null) => void;
   onHover: (p: string | null) => void;
+  district?: string | null;
+  onDistrictSelect?: (d: string | null) => void;
 }
 
 type Building = {
@@ -54,8 +56,11 @@ export function buildBuildings(data: AnalysisResult): Building[] {
   const walk = (nodes: typeof tree, depth: number) => {
     for (const n of nodes) {
       if (n.type === 'file') {
-        const line = (n as { lineCount?: number }).lineCount ?? 40;
-        files.push({ path: n.path, depth, line });
+        const f = n as unknown as { path: string; lineCount?: number; filtered?: string };
+        // 默认被过滤的测试/生成物/资源不进城，避免单帧数千 mesh 拖垮（左树照常可达）
+        if (f.filtered && (f.filtered === 'test' || f.filtered === 'generated' || f.filtered === 'media')) continue;
+        const line = f.lineCount ?? 40;
+        files.push({ path: f.path, depth, line });
       }
       if (n.children) walk(n.children as unknown as typeof tree, depth + 1);
     }
@@ -189,7 +194,7 @@ function resolveTarget(spec: string, byPath: Map<string, Building>): Building | 
 
 // 关系城市：分布回答“哪儿大”，这里回答“谁连谁、哪儿死、哪儿是环、从哪进”
 // 高度/标尺/街区与分布同语言；颜色切扩展名；热点冠层保留
-export function CityScene({ data, selected, onSelect, onHover }: Props) {
+export function CityScene({ data, selected, onSelect, onHover, district, onDistrictSelect }: Props) {
   const mountRef = useRef<HTMLDivElement>(null);
   const buildings = useMemo(() => buildBuildings(data), [data]);
   const plates = useMemo(() => blockPlates(data, buildings), [data, buildings]);
@@ -199,12 +204,14 @@ export function CityScene({ data, selected, onSelect, onHover }: Props) {
     [buildings],
   );
   const edges = useMemo(() => data.level1.dependencyGraph ?? [], [data]);
-  const cbRef = useRef({ onSelect, onHover });
-  cbRef.current = { onSelect, onHover };
+  const cbRef = useRef({ onSelect, onHover, onDistrictSelect });
+  cbRef.current = { onSelect, onHover, onDistrictSelect };
+  const camRef = useRef<{ camera: THREE.PerspectiveCamera; controls: InstanceType<typeof OrbitControls> } | null>(null);
   const apiRef = useRef<{
     repaint: (sel: string | null, hov: string | null) => void;
     rebuildArcs: (sel: string | null) => void;
     setHubsVisible: (v: boolean) => void;
+    flyToDistrict: (d: string | null) => void;
   } | null>(null);
 
   useEffect(() => {
@@ -231,6 +238,7 @@ export function CityScene({ data, selected, onSelect, onHover }: Props) {
     controls.maxDistance = 90;
     controls.maxPolarAngle = Math.PI / 2.12;
     controls.target.set(0, 1.2, 0);
+    camRef.current = { camera, controls };
 
     scene.add(new THREE.AmbientLight(0xffffff, 0.85));
     const dir = new THREE.DirectionalLight(0xfff2e0, 1.1);
@@ -451,12 +459,33 @@ export function CityScene({ data, selected, onSelect, onHover }: Props) {
       });
       if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     };
+    const flyToDistrict = (d: string | null) => {
+      if (!d || !camRef.current) return;
+      const p = plates.find((x) => x.dir === d) ?? plates.find((x) => d.startsWith(x.dir + '/') || x.dir.startsWith(d + '/'));
+      if (!p) return;
+      const cam = camRef.current.camera;
+      const ctr = camRef.current.controls;
+      const toPos = new THREE.Vector3(p.x + 14, 18, p.z + 14);
+      const toTgt = new THREE.Vector3(p.x, 0.6, p.z);
+      // 简化：直接 lerp 600ms
+      const fromPos = cam.position.clone();
+      const fromTgt = ctr.target.clone();
+      let t = 0;
+      const step = () => {
+        t += 0.06;
+        if (t >= 1) { cam.position.copy(toPos); ctr.target.copy(toTgt); ctr.update(); return; }
+        cam.position.lerpVectors(fromPos, toPos, t);
+        ctr.target.lerpVectors(fromTgt, toTgt, t);
+        ctr.update();
+        requestAnimationFrame(step);
+      };
+      step();
+    };
     apiRef.current = {
       repaint: paint,
       rebuildArcs,
-      setHubsVisible: (v: boolean) => {
-        hubGroup.visible = v;
-      },
+      setHubsVisible: (v: boolean) => { hubGroup.visible = v; },
+      flyToDistrict,
     };
     paint(selected, null);
     rebuildArcs(selected);
@@ -494,6 +523,7 @@ export function CityScene({ data, selected, onSelect, onHover }: Props) {
     const onClick = (e: PointerEvent) => {
       const b = pick(e);
       cbRef.current.onSelect(b ? b.path : null);
+      if (b && cbRef.current.onDistrictSelect) cbRef.current.onDistrictSelect(b.district);
     };
     const onMove = (e: PointerEvent) => {
       const b = pick(e);
@@ -570,6 +600,9 @@ export function CityScene({ data, selected, onSelect, onHover }: Props) {
     apiRef.current?.rebuildArcs(selected);
     apiRef.current?.setHubsVisible(!selected);
   }, [selected]);
+  useEffect(() => {
+    if (district) apiRef.current?.flyToDistrict(district);
+  }, [district]);
 
   return <div ref={mountRef} style={{ width: '100%', height: '100%', background: 'transparent', cursor: 'grab' }} />;
 }

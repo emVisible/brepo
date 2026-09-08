@@ -16,6 +16,10 @@ export const SCAN = {
   largeFileSize: 500_000,
   /** 行估算除数 */
   linesPerByte: 80,
+  /** 白名单非常规文件内容读取上限（字节，超此按 KB 折算，不读） */
+  extraContentMax: 262_144,
+  /** 二进制嗅探字节数（只读头部判定，不读全文） */
+  sniffBytes: 4096,
 } as const;
 
 export const IMPORTS = {

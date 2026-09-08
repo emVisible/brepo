@@ -27,6 +27,8 @@ export interface AnalyzeOptions {
   useCache?: boolean;
   /** 额外纳入的扩展名（默认被忽略的样式/图片/数据文件） */
   includeExts?: string[];
+  /** GitHub 仓库坐标（压缩包场景用于 API 补数，无 token） */
+  gitHub?: { owner: string; repo: string };
   onEvent?: (e: AnalyzerEvent) => void;
 }
 
@@ -38,11 +40,13 @@ export async function analyzeProject(absolutePath: string, opts: AnalyzeOptions 
 
   ev('scan', 'start', 2, '开始扫描文件');
   const useCache = opts.useCache !== false;
+  // git 只算一次：缓存预检与正式阶段复用同一 promise（曾调两次）
+  const preGitP = parseGitInfo(absolutePath, { github: opts.gitHub }).catch(() => ({ isGitRepo: false }) as never);
   let cacheKey: string | undefined;
   if (useCache) {
     try {
       const { computeCacheKey, readCache } = await import('./cache.js');
-      const preGit = await parseGitInfo(absolutePath).catch(() => ({ isGitRepo: false } as never));
+      const preGit = await preGitP;
       const head = (preGit as { lastCommitDate?: string })?.lastCommitDate ?? undefined;
       cacheKey = await computeCacheKey(absolutePath, head, opts.includeExts);
       const cached = (await readCache(absolutePath, cacheKey)) as AnalysisResult | undefined;
@@ -57,7 +61,17 @@ export async function analyzeProject(absolutePath: string, opts: AnalyzeOptions 
 
   const scanP = scanProject(absolutePath, { includeExts: opts.includeExts });
   const techP = parseTechStack(absolutePath);
-  const gitP = parseGitInfo(absolutePath);
+  const gitP = preGitP.then(
+    (v) => v as import('@briefrepo/types').GitInfo,
+    (): import('@briefrepo/types').GitInfo => ({
+      isGitRepo: false,
+      totalCommits: 0,
+      contributors: 0,
+      contributorList: [],
+      recentActivity: 0,
+      hasRemote: false,
+    }),
+  );
   const readmeP = extractReadme(absolutePath);
 
   const [scan, tech, git, readme] = await Promise.all([
@@ -70,7 +84,13 @@ export async function analyzeProject(absolutePath: string, opts: AnalyzeOptions 
       return v;
     }),
     gitP.then((v) => {
-      ev('git', 'git', 38, `Git · ${v.totalCommits} 提交 · ${v.contributors} 人`);
+      if (!v.isGitRepo && v.source === 'github-api') {
+        ev('git', 'git', 38, `GitHub · ${v.totalCommits} 提交 · ${v.contributors} 人（API 补数，压缩包无本地历史）`);
+      } else if (!v.isGitRepo) {
+        ev('git', 'git', 38, '无本地 Git 历史', undefined, 'warn');
+      } else {
+        ev('git', 'git', 38, `Git · ${v.totalCommits} 提交 · ${v.contributors} 人`);
+      }
       return v;
     }),
     readmeP.then((v) => {
@@ -89,6 +109,10 @@ export async function analyzeProject(absolutePath: string, opts: AnalyzeOptions 
     absolutePath,
     fileCount: scan.fileCount,
     totalLines: scan.totalLines,
+    fileCountAll: scan.fileCountAll,
+    totalLinesAll: scan.totalLinesAll,
+    filteredCount: scan.filteredFiles.length,
+    filteredBy: scan.filteredBy as Record<string, number>,
     docFileCount: scan.docFileCount,
     languages: scan.languages,
     primaryLanguage: scan.primaryLanguage,
@@ -115,6 +139,10 @@ export async function analyzeProject(absolutePath: string, opts: AnalyzeOptions 
     description: ctx.description,
     fileCount: ctx.fileCount,
     totalLines: ctx.totalLines,
+    fileCountAll: ctx.fileCountAll,
+    totalLinesAll: ctx.totalLinesAll,
+    filteredCount: ctx.filteredCount,
+    filteredBy: ctx.filteredBy,
     languages: ctx.languages,
     primaryLanguage: ctx.primaryLanguage,
     techStack: ctx.techStack,
@@ -123,14 +151,25 @@ export async function analyzeProject(absolutePath: string, opts: AnalyzeOptions 
   };
 
   ev('graph', 'deps', 55, '解析依赖图谱');
+  // 长考阶段节流进度（≥600ms 一条，保证大仓也有心跳；pct 落在阶段区间内）
+  const throttled = (phase: AnalyzerEvent['phase'], step: string, fromPct: number, toPct: number, label: string) => {
+    let last = 0;
+    return (done: number, total: number) => {
+      if (total <= 0) return;
+      const now = Date.now();
+      if (now - last < 600 && done < total) return;
+      last = now;
+      ev(phase, step, Math.round(fromPct + ((toPct - fromPct) * done) / total), `${label} · ${done}/${total} 文件`);
+    };
+  };
   const [dependencyGraph, stats, churn] = await Promise.all([
-    parseDependencyGraph(absolutePath, scan.allFiles, scan.fileContents)
+    parseDependencyGraph(absolutePath, scan.allFiles, scan.fileContents, throttled('graph', 'deps', 55, 67, '依赖解析中'))
       .then((v) => {
         ev('graph', 'deps', 68, `依赖 · ${v.length} 边`);
         return v;
       })
       .catch(() => [] as never),
-    analyzeComplexity(absolutePath, scan.allFiles, scan.fileContents)
+    analyzeComplexity(absolutePath, scan.allFiles, scan.fileContents, throttled('graph', 'complexity', 68, 71, '复杂度计算中'))
       .then((v) => {
         ev('graph', 'complexity', 72, `复杂度 · ${v.functions} fn · ${v.classes} cls`);
         return v;

@@ -23,4 +23,14 @@ describe('analyzeComplexity', () => {
     expect(stats.functions).toBe(0);
     await rm(root, { recursive: true, force: true });
   });
+
+  it('samples files over the parse cap instead of reading them fully', async () => {
+    const root = join(tmpdir(), `brepo-cplx-sample-${Date.now()}`);
+    await mkdir(join(root, 'src'), { recursive: true });
+    // 200KB 全是函数定义：头部样本应计数 > 0（与旧 slice 行为一致）
+    await writeFile(join(root, 'src', 'big.ts'), 'function f(){} if(a){}\n'.repeat(10000).slice(0, 200 * 1024));
+    const stats = await analyzeComplexity(root, ['src/big.ts']);
+    expect(stats.functions).toBeGreaterThan(100);
+    await rm(root, { recursive: true, force: true });
+  });
 });

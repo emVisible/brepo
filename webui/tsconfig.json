@@ -45,9 +45,6 @@
     },
     {
       "path": "../packages/analyzer-core"
-    },
-    {
-      "path": "../packages/web-reporter"
     }
   ]
 }

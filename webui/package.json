@@ -15,7 +15,6 @@
     "@briefrepo/analyzer-core": "workspace:*",
     "@briefrepo/tokens": "workspace:*",
     "@briefrepo/types": "workspace:*",
-    "@briefrepo/web-reporter": "workspace:*",
     "framer-motion": "^11.11.0",
     "gsap": "^3.12.5",
     "next": "^15.1.0",

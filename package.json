@@ -10,14 +10,12 @@
   },
   "scripts": {
     "dev": "pnpm --filter @briefrepo/webui dev",
-    "dev:webui": "pnpm --filter @briefrepo/webui dev",
     "build": "turbo run build",
-    "build:webui": "pnpm --filter @briefrepo/webui build",
     "test": "vitest run",
+    "bench": "node packages/analyzer-core/bench-analyze.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.base.json || true"
   },
   "devDependencies": {
-    "@changesets/cli": "^3.0.1",
     "@vitest/coverage-v8": "^4.1.11",
     "eslint": "^9.0.0",
     "prettier": "^3.0.0",

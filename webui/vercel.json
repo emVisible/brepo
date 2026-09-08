@@ -5,10 +5,10 @@
   "outputDirectory": "webui/.next",
   "functions": {
     "webui/app/api/analyze/stream/route.ts": {
-      "maxDuration": 60
+      "maxDuration": 300
     },
     "webui/app/api/analyze/route.ts": {
-      "maxDuration": 60
+      "maxDuration": 300
     }
   }
 }

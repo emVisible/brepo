@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { join, extname } from 'node:path';
 import type { DependencyEdge } from '@briefrepo/types';
 import { IMPORTS } from '../constants.js';
@@ -14,6 +14,7 @@ export async function parseDependencyGraph(
   root: string,
   allFiles: string[],
   fileContents?: Map<string, string>,
+  onProgress?: (done: number, total: number) => void,
 ): Promise<DependencyEdge[]> {
   const edges: DependencyEdge[] = [];
   const jsCandidates = allFiles.filter((p) => JS_EXTS.has(extname(p).toLowerCase()));
@@ -28,6 +29,7 @@ export async function parseDependencyGraph(
 
   const limit = IMPORTS.batch;
   let idx = 0;
+  onProgress?.(0, candidates.length);
   const runBatch = async (): Promise<void> => {
     const batch = candidates.slice(idx, idx + limit);
     idx += limit;
@@ -36,7 +38,10 @@ export async function parseDependencyGraph(
       batch.map(async ({ rel, kind }) => {
         let content: string | undefined = fileContents?.get(rel);
         if (content === undefined) {
+          // 先判后读：超限文件与今日行为一致直接跳过，但不再把全文读进内存
           try {
+            const st = await stat(join(root, rel));
+            if (st.size > IMPORTS.maxContentLen) return;
             content = await readFile(join(root, rel), 'utf-8');
           } catch {
             return;
@@ -81,6 +86,7 @@ export async function parseDependencyGraph(
         }
       }),
     );
+    onProgress?.(Math.min(idx, candidates.length), candidates.length);
     if (idx < candidates.length) await runBatch();
   };
   await runBatch();

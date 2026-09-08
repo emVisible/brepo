@@ -13,7 +13,7 @@ export const metadata: Metadata = {
     default: 'BriefRepo — 粘贴仓库，预览导航',
     template: '%s · BriefRepo',
   },
-  description: '输入 GitHub 链接或本地路径，生成一份可交互的项目导航报告。开源、本地优先。',
+  description: '输入 GitHub 仓库链接，生成一份可交互的项目导航报告。开源、本地优先。',
   keywords: ['BriefRepo', 'GitHub 分析', 'repo 可视化', '项目导航', 'onboarding', 'treemap', '代码分析', 'repository map', 'code visualization'],
   authors: [{ name: 'BriefRepo Contributors' }],
   creator: 'BriefRepo',
@@ -29,12 +29,12 @@ export const metadata: Metadata = {
     url: '/',
     siteName: 'BriefRepo',
     title: 'BriefRepo — 粘贴仓库，预览导航',
-    description: '输入 GitHub 链接或本地路径，生成一份可交互的项目导航报告。开源、本地优先。',
+    description: '输入 GitHub 仓库链接，生成一份可交互的项目导航报告。开源、本地优先。',
   },
   twitter: {
     card: 'summary_large_image',
     title: 'BriefRepo — 粘贴仓库，预览导航',
-    description: '输入 GitHub 链接或本地路径，生成一份可交互的项目导航报告。',
+    description: '输入 GitHub 仓库链接，生成一份可交互的项目导航报告。',
   },
   icons: { icon: '/icon.svg' },
 };

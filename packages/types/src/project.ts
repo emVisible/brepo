@@ -1,3 +1,5 @@
+import type { FilterId } from './filters.js';
+
 export type ProjectKind =
   | 'product'
   | 'library'
@@ -34,8 +36,14 @@ export interface ProjectContext {
   description: string;
   repoUrl?: string;
   absolutePath: string;
+  /** 有效文件（排除已过滤的测试/生成物/资源） */
   fileCount: number;
   totalLines: number;
+  /** 含已过滤的总数，用于左树“全部文件”真实总数 */
+  fileCountAll?: number;
+  totalLinesAll?: number;
+  filteredCount?: number;
+  filteredBy?: Record<string, number>;
   docFileCount: number;
   languages: Record<string, number>;
   primaryLanguage?: string;
@@ -63,6 +71,8 @@ export interface GitInfo {
   recentActivity: number;
   hasRemote: boolean;
   remoteUrl?: string;
+  /** 数据来源：本地仓库 vs GitHub API（压缩包场景）；缺省视为 local */
+  source?: 'local' | 'github-api';
 }
 
 export interface FileNode {
@@ -72,4 +82,6 @@ export interface FileNode {
   children?: FileNode[];
   size?: number;
   lineCount?: number;
+  /** 命中过滤规则（左树打标、treemap/City 默认隐藏的依据）；未命中为 undefined */
+  filtered?: FilterId;
 }

@@ -38,4 +38,16 @@ describe('parseDependencyGraph', () => {
     expect(edges.length).toBe(0);
     await rm(root, { recursive: true, force: true });
   });
+
+  it('skips files over the parse cap via stat (no full read needed)', async () => {
+    const root = join(tmpdir(), `brepo-overcap-${Date.now()}`);
+    await mkdir(join(root, 'src'), { recursive: true });
+    // 200KB：超过 120KB 上限，即使含 import 也必须跳过（与旧行为一致）
+    await writeFile(join(root, 'src', 'big.ts'), `import x from 'react';\n`.padEnd(200 * 1024, 'x'));
+    await writeFile(join(root, 'src', 'small.ts'), `import y from './big';\n`);
+    const edges = await parseDependencyGraph(root, ['src/big.ts', 'src/small.ts']);
+    expect(edges.some((e) => e.from === 'src/big.ts')).toBe(false);
+    expect(edges.some((e) => e.from === 'src/small.ts' && e.to === './big')).toBe(true);
+    await rm(root, { recursive: true, force: true });
+  });
 });

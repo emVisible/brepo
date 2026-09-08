@@ -3,7 +3,7 @@
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useWebStore } from '@/lib/store';
 import { dict } from '@/lib/i18n';
 import { getHistory } from '@/lib/history';
@@ -34,6 +34,9 @@ export default function ReportPage() {
   const metric = useWebStore((s) => s.metric);
   const lang = useWebStore((s) => s.lang);
   const t = dict[lang];
+
+  const [leftW, setLeftW] = useState(240);
+  const resizing = useRef(false);
 
   const params = useParams<{ id: string }>();
   // 直接访问 /r/:id 时用 cookie 语言初始化（站内导航则保持 store 现状）；
@@ -93,8 +96,8 @@ export default function ReportPage() {
   return (
     <div style={{ position: 'relative', width: '100vw', height: '100vh', overflow: 'hidden', background: 'var(--bg)' }}>
       {/* 内容层：全 bleed（视图切换淡入，选中态跨视图保留） */}
-      <div key={view} className="brepo-view-in" style={{ position: 'absolute', inset: 0, left: view === 'treemap' ? 312 : 0 }}>
-        {view === 'city' && <CityScene data={data} selected={selected} onSelect={setSelected} onHover={setHover} />}
+      <div key={view} className="brepo-view-in" style={{ position: 'absolute', inset: 0, left: view === 'treemap' ? leftW + 20 : 0 }}>
+        {view === 'city' && <CityScene data={data} selected={selected} onSelect={setSelected} onHover={setHover} district={treemapRoot} onDistrictSelect={setTreemapRoot} />}
         {view === 'treemap' && <TreemapScene data={data} selected={selected} onSelect={setSelected} onHover={setHover} root={treemapRoot} onDrillRoot={setTreemapRoot} />}
       </div>
 
@@ -120,6 +123,7 @@ export default function ReportPage() {
         <span style={{ fontWeight: 800, fontSize: 14, letterSpacing: '-.01em', color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis' }}>{data.context.name}</span>
         <span className="mono" style={{ color: 'var(--muted)', fontSize: 11, flexShrink: 0 }}>
           {t.kpiFiles} <strong style={{ color: 'var(--text)' }}>{data.level0.fileCount.toLocaleString()}</strong>
+          {data.level0.filteredCount ? <span style={{ color: 'var(--warning)' }}>（已过滤 {data.level0.filteredCount}）</span> : null}
           {' · '}{data.level0.totalLines.toLocaleString()}{t.kpiLinesUnit}
           {' · '}{langs || '—'}
           {' · '}{t.kpiCommits} <strong style={{ color: 'var(--text)' }}>{data.level0.git.totalCommits}</strong>
@@ -151,11 +155,36 @@ export default function ReportPage() {
         </nav>
       </header>
 
-      {/* 左栏：分布=目录树（含热点），城市/图谱=热点榜 */}
+      {/* 左栏：分布=画布导航器（自适应可调宽度） */}
       {view === 'treemap' ? (
-        <aside style={{ position: 'absolute', top: 104, left: 20, width: 272, bottom: 56, overflow: 'auto', pointerEvents: 'auto', scrollbarWidth: 'thin' }}>
-          <DirTree data={data} selected={selected} onSelect={setSelected} onHover={setHover} treemapRoot={treemapRoot} onPickRoot={setTreemapRoot} />
-        </aside>
+        <>
+          <aside style={{ position: 'absolute', top: 104, left: 12, width: leftW, bottom: 56, overflow: 'hidden', pointerEvents: 'auto', background: 'rgba(10,10,11,.42)', border: '1px solid rgba(255,255,255,.08)', borderRadius: 12, padding: '10px 8px', backdropFilter: 'blur(6px)' }}>
+            <DirTree data={data} selected={selected} onSelect={setSelected} onHover={setHover} treemapRoot={treemapRoot} onPickRoot={setTreemapRoot} />
+          </aside>
+          <div
+            onPointerDown={(e) => {
+              resizing.current = true;
+              const startX = e.clientX;
+              const startW = leftW;
+              const onMove = (ev: PointerEvent) => {
+                if (!resizing.current) return;
+                const nw = Math.min(420, Math.max(200, startW + ev.clientX - startX));
+                setLeftW(nw);
+              };
+              const onUp = () => {
+                resizing.current = false;
+                window.removeEventListener('pointermove', onMove);
+                window.removeEventListener('pointerup', onUp);
+              };
+              window.addEventListener('pointermove', onMove);
+              window.addEventListener('pointerup', onUp);
+            }}
+            style={{ position: 'absolute', top: 104, left: 12 + leftW, width: 10, bottom: 56, cursor: 'col-resize', zIndex: 4, display: 'grid', placeItems: 'center' }}
+            title="拖拽调整宽度"
+          >
+            <div style={{ width: 3, height: 36, borderRadius: 9999, background: 'rgba(255,255,255,.14)' }} />
+          </div>
+        </>
       ) : (
         <aside style={{ position: 'absolute', left: 20, bottom: 52, width: 264, maxHeight: 'calc(100vh - 220px)', overflow: 'auto', pointerEvents: 'auto', scrollbarWidth: 'thin' }}>
           <HotspotRail data={data} selected={selected} onSelect={setSelected} onHover={setHover} />
