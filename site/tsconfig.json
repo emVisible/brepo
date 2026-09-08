@@ -1,0 +1,38 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": [
+        "./*"
+      ]
+    },
+    "jsx": "preserve",
+    "lib": [
+      "ES2022",
+      "DOM"
+    ],
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "allowJs": true,
+    "incremental": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ]
+  },
+  "include": [
+    "app/**/*",
+    "components/**/*",
+    "lib/**/*",
+    "next-env.d.ts",
+    "styles/**/*",
+    ".next/types/**/*.ts"
+  ],
+  "exclude": [
+    "out",
+    ".next",
+    "node_modules"
+  ]
+}
