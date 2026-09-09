@@ -1,4 +1,4 @@
-import type { ProjectContext, ProjectFeatures } from '@briefrepo/types';
+import type { FileNode, ProjectContext, ProjectFeatures } from '@briefrepo/types';
 import type { BasicAnalysis } from '@briefrepo/types';
 
 const DISCLAIMER = '基于静态规则推断，仅供参考。实际情况可能与推断结果存在差异。';
@@ -18,7 +18,7 @@ export function extractFeatures(ctx: ProjectContext): ProjectFeatures {
   const hasWorkspaceCLI =
     ctx.topLevelFiles.includes('packages') &&
     ctx.fileTree.some(
-      (n) => n.name === 'packages' && n.type === 'directory' && (n.children ?? []).some((c) => c.name === 'cli'),
+      (n: FileNode) => n.name === 'packages' && n.type === 'directory' && (n.children ?? []).some((c: FileNode) => c.name === 'cli'),
     );
   const hasCLI = Boolean(bin) || has('commander') || has('yargs') || has('oclif') || has('cac') || hasWorkspaceCLI;
 
@@ -29,7 +29,7 @@ export function extractFeatures(ctx: ProjectContext): ProjectFeatures {
   const readmeLower = ctx.readmeContent.toLowerCase();
   const hasScreenshots = readmeLower.includes('![') || readmeLower.includes('<img') || readmeLower.includes('screenshot');
   const hasDemo = readmeLower.includes('demo') || ctx.topLevelFiles.includes('examples') || ctx.topLevelFiles.includes('demo');
-  const hasDocsFolder = ctx.topLevelFiles.includes('docs') || ctx.fileTree.some((n) => n.name.toLowerCase() === 'docs');
+  const hasDocsFolder = ctx.topLevelFiles.includes('docs') || ctx.fileTree.some((n: FileNode) => n.name.toLowerCase() === 'docs');
   const hasAPIDocs = readmeLower.includes('api') && (readmeLower.includes('usage') || readmeLower.includes('example') || readmeLower.includes('install'));
   const hasAPIDocsStrong = hasAPIDocs || (hasDocsFolder && readmeLower.includes('api'));
   const hasUserGuide =
@@ -43,8 +43,8 @@ export function extractFeatures(ctx: ProjectContext): ProjectFeatures {
   const hasDownload = readmeLower.includes('download') || has('electron-builder') || Boolean(pkg?.['bin']);
 
   const hasTests =
-    ctx.topLevelFiles.some((f) => f === '__tests__' || f === 'tests' || f === 'test') ||
-    deps.some((d) => d.includes('jest') || d.includes('vitest') || d.includes('mocha'));
+    ctx.topLevelFiles.some((f: string) => f === '__tests__' || f === 'tests' || f === 'test') ||
+    deps.some((d: string) => d.includes('jest') || d.includes('vitest') || d.includes('mocha'));
 
   const isFramework = has('react') && ctx.dependencies.includes('react') && readmeLower.includes('component');
   const isLibrary = Boolean(pkg && !(hasUIDeps && hasUserGuide) && hasAPIDocsStrong);
@@ -59,12 +59,12 @@ export function extractFeatures(ctx: ProjectContext): ProjectFeatures {
     hasWorkspaceCLI &&
     ctx.topLevelFiles.includes('apps') &&
     ctx.fileTree.some(
-      (n) =>
+      (n: FileNode) =>
         n.name === 'apps' &&
         n.type === 'directory' &&
-        (n.children?.filter((c) => c.type === 'directory').length ?? 0) >= 2,
+        (n.children?.filter((c: FileNode) => c.type === 'directory').length ?? 0) >= 2,
     ) &&
-    (deps.some((d) => d.includes('expo') || d.includes('electron')) || readmeLower.includes('platform'));
+    (deps.some((d: string) => d.includes('expo') || d.includes('electron')) || readmeLower.includes('platform'));
 
   return {
     hasUI: hasUIDeps || hasUI,

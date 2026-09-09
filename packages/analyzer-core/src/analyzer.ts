@@ -16,7 +16,7 @@ import { emit } from './events.js';
 
 function buildOneLiner(ctx: ProjectContext): string {
   if (ctx.readmeSummary) {
-    const firstLine = ctx.readmeSummary.split('\n').find((l) => l.trim().length > 20);
+    const firstLine = ctx.readmeSummary.split('\n').find((l: string) => l.trim().length > 20);
     if (firstLine) return firstLine.trim().slice(0, 120);
   }
   if (ctx.description) return ctx.description.slice(0, 120);

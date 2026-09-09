@@ -22,7 +22,7 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc --build --force",
     "dev": "tsc -p tsconfig.json --watch",
     "clean": "rm -rf dist tsconfig.tsbuildinfo",
     "lint": "eslint src --ext .ts",
